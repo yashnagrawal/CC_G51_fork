@@ -132,21 +132,52 @@ bool detect_cycle(const map<string, string>& map, string start)
 
 string check_macro(string line)
 {
-    for (auto macro : macros) {
-        // line = macro.first + " // " + macro.second;
-        size_t pos = 0;
-        while ((pos = line.find(macro.first, pos)) != string::npos) {
+    // modify the function such that it replaces the macros until the result does not contain any macro
+    // for example, if the macros are:
+    // #def A B
+    // #def B C
+    // then the line "A" should be replaced to "C" and not "B"
 
-            if ((pos > 0 && isalpha(line[pos - 1])) || (pos + macro.first.size() < line.size() && isalpha(line[pos + macro.first.size()]))) {
+    // for (auto macro : macros) {
+    //     // line = macro.first + " // " + macro.second;
+    //     size_t pos = 0;
+    //     while ((pos = line.find(macro.first, pos)) != string::npos) {
+
+    //         if ((pos > 0 && isalpha(line[pos - 1])) || (pos + macro.first.size() < line.size() && isalpha(line[pos + macro.first.size()]))) {
+    //             pos += macro.second.length();
+    //             continue;
+    //         }
+
+    //         line.replace(pos, macro.first.length(), macro.second);
+    //         pos += macro.second.length();
+    //     }
+    // }
+    // return line;
+
+    string result = line;
+    bool changed = true;
+
+    while (changed) {
+        changed = false;
+        for (auto macro : macros) {
+            size_t pos = 0;
+            while ((pos = result.find(macro.first, pos)) != string::npos) {
+
+                if ((pos > 0 && isalpha(result[pos - 1])) || (pos + macro.first.size() < result.size() && isalpha(result[pos + macro.first.size()]))) {
+                    pos += macro.second.length();
+                    continue;
+                }
+
+                result.replace(pos, macro.first.length(), macro.second);
                 pos += macro.second.length();
-                continue;
+                changed = true;
             }
-
-            line.replace(pos, macro.first.length(), macro.second);
-            pos += macro.second.length();
+            cout << " inside " << endl;
         }
+        cout << " outside " << endl;
     }
-    return line;
+
+    return result;
 }
 
 FILE* preprocessor(FILE* input)
@@ -172,7 +203,8 @@ FILE* preprocessor(FILE* input)
             // get the value (till line end)
             size_t valueStart = nameEnd + 1;
             string value = line.substr(valueStart, line.length() - 1 - valueStart);
-
+            if (value.length() == 0)
+                value = "1";
             // Add the macro mapping to the macros table
             macros[name] = value;
 

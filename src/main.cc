@@ -1,10 +1,9 @@
+#include <bits/stdc++.h>
 #include <cstdio>
 #include <cstring>
+#include <ctype.h>
 #include <fstream>
 #include <iostream>
-#include <map>
-#include <string>
-#include <vector>
 
 #include "ast.hh"
 #include "llvmcodegen.hh"
@@ -17,6 +16,7 @@ extern char* yytext;
 using namespace std;
 
 NodeStmts* final_values;
+map<string, string> macros;
 
 #define ARG_OPTION_L 0
 #define ARG_OPTION_P 1
@@ -24,9 +24,10 @@ NodeStmts* final_values;
 #define ARG_OPTION_O 3
 #define ARG_FAIL -1
 
-map<string, string> macros;
+// map<string, string> macros;
 
 FILE* preprocessor(FILE* input);
+bool detect_cycle(const map<string, string>& map, string start);
 
 int parse_arguments(int argc, char* argv[])
 {
@@ -72,6 +73,7 @@ int main(int argc, char* argv[])
         exit(1);
     }
 
+    // yyin = source;
     yyin = preprocessor(source);
 
     if (arg_option == ARG_OPTION_L) {
@@ -115,6 +117,19 @@ int main(int argc, char* argv[])
     return 0;
 }
 
+bool detect_cycle(const map<string, string>& map, string start)
+{
+    unordered_set<string> visited;
+    while (map.count(start) > 0) {
+        if (visited.count(start) > 0) {
+            return true;
+        }
+        visited.insert(start);
+        start = map.at(start);
+    }
+    return false;
+}
+
 FILE* preprocessor(FILE* input)
 {
     char buffer[1024];
@@ -141,6 +156,12 @@ FILE* preprocessor(FILE* input)
 
             // Add the macro mapping to the macros table
             macros[name] = value;
+
+            if (detect_cycle(macros, name)) {
+                std::cerr << "Error: Macro cycle detected.\n";
+                exit(1);
+            }
+
         } else if (undefPos != string::npos) {
             // Extract the macro name and value
 
@@ -159,6 +180,12 @@ FILE* preprocessor(FILE* input)
                 // line = macro.first + " // " + macro.second;
                 size_t pos = 0;
                 while ((pos = line.find(macro.first, pos)) != string::npos) {
+
+                    if ((pos > 0 && isalpha(line[pos - 1])) || (pos + macro.first.size() < line.size() && isalpha(line[pos + macro.first.size()]))) {
+                        pos += macro.second.length();
+                        continue;
+                    }
+
                     line.replace(pos, macro.first.length(), macro.second);
                     pos += macro.second.length();
                 }
@@ -167,28 +194,14 @@ FILE* preprocessor(FILE* input)
             output += line;
         }
     }
-
-    // Remove comments
-    size_t pos = 0;
-    while ((pos = output.find("//", pos)) != string::npos) {
-        size_t end = output.find("\n", pos);
-        output.erase(pos, end - pos + 1);
-    }
-
-    pos = 0;
-    while ((pos = output.find("/*", pos)) != string::npos) {
-        size_t end = output.find("*/", pos);
-        output.erase(pos, end - pos + 2);
-    }
-
     // Create a temporary file for the output
     FILE* temp = tmpfile();
     fputs(output.c_str(), temp);
     // save this to file called test.txt
-    // ofstream myfile;
-    // // myfile.open("test.txt");
-    // myfile << output.c_str();
-    // myfile.close();
+    ofstream myfile;
+    myfile.open("test.txt");
+    myfile << output.c_str();
+    myfile.close();
 
     rewind(temp);
 

@@ -1,2 +1,12 @@
+// wiurgfiwr gf
+
+#def abc d
+/* iwurgfi r */
+/*
+
+owryrfoy owuhrfo
+
+*/
 let abc = 123 * 20 + 20 + (22 / 2) - 3;
-dbg abc + abc;
+#undef abc
+dbg d + d;

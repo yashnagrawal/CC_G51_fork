@@ -1,19 +1,22 @@
-#include <iostream>
-#include <string>
-#include <vector>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <iostream>
+#include <map>
+#include <string>
+#include <vector>
 
-#include "parser.hh"
 #include "ast.hh"
 #include "llvmcodegen.hh"
+#include "parser.hh"
 
-extern FILE *yyin;
+extern FILE* yyin;
 extern int yylex();
-extern char *yytext;
+extern char* yytext;
 
-NodeStmts *final_values;
+using namespace std;
+
+NodeStmts* final_values;
 
 #define ARG_OPTION_L 0
 #define ARG_OPTION_P 1
@@ -21,87 +24,173 @@ NodeStmts *final_values;
 #define ARG_OPTION_O 3
 #define ARG_FAIL -1
 
-int parse_arguments(int argc, char *argv[]) {
-	if (argc == 3 || argc == 4) {
-		if (strlen(argv[2]) == 2 && argv[2][0] == '-') {
-			if (argc == 3) {
-				switch (argv[2][1]) {
-					case 'l':
-					return ARG_OPTION_L;
+map<string, string> macros;
 
-					case 'p':
-					return ARG_OPTION_P;
+FILE* preprocessor(FILE* input);
 
-					case 's':
-					return ARG_OPTION_S;
-				}
-			} else if (argv[2][1] == 'o') {
-				return ARG_OPTION_O;
-			}
-		}
-	} 
-	
-	std::cerr << "Usage:\nEach of the following options halts the compilation process at the corresponding stage and prints the intermediate output:\n\n";
-	std::cerr << "\t`./bin/base <file_name> -l`, to tokenize the input and print the token stream to stdout\n";
-	std::cerr << "\t`./bin/base <file_name> -p`, to parse the input and print the abstract syntax tree (AST) to stdout\n";
-	std::cerr << "\t`./bin/base <file_name> -s`, to compile the file to LLVM assembly and print it to stdout\n";
-	std::cerr << "\t`./bin/base <file_name> -o <output>`, to compile the file to LLVM bitcode and write to <output>\n";
-	return ARG_FAIL;
+int parse_arguments(int argc, char* argv[])
+{
+    if (argc == 3 || argc == 4) {
+        if (strlen(argv[2]) == 2 && argv[2][0] == '-') {
+            if (argc == 3) {
+                switch (argv[2][1]) {
+                case 'l':
+                    return ARG_OPTION_L;
+
+                case 'p':
+                    return ARG_OPTION_P;
+
+                case 's':
+                    return ARG_OPTION_S;
+                }
+            } else if (argv[2][1] == 'o') {
+                return ARG_OPTION_O;
+            }
+        }
+    }
+
+    std::cerr << "Usage:\nEach of the following options halts the compilation process at the corresponding stage and prints the intermediate output:\n\n";
+    std::cerr << "\t`./bin/base <file_name> -l`, to tokenize the input and print the token stream to stdout\n";
+    std::cerr << "\t`./bin/base <file_name> -p`, to parse the input and print the abstract syntax tree (AST) to stdout\n";
+    std::cerr << "\t`./bin/base <file_name> -s`, to compile the file to LLVM assembly and print it to stdout\n";
+    std::cerr << "\t`./bin/base <file_name> -o <output>`, to compile the file to LLVM bitcode and write to <output>\n";
+    return ARG_FAIL;
 }
 
-int main(int argc, char *argv[]) {
-	int arg_option = parse_arguments(argc, argv);
-	if (arg_option == ARG_FAIL) {
-		exit(1);
-	}
+int main(int argc, char* argv[])
+{
+    int arg_option = parse_arguments(argc, argv);
+    if (arg_option == ARG_FAIL) {
+        exit(1);
+    }
 
-	std::string file_name(argv[1]);
-	FILE *source = fopen(argv[1], "r");
+    std::string file_name(argv[1]);
+    FILE* source = fopen(argv[1], "r");
 
-    if(!source) {
+    if (!source) {
         std::cerr << "File does not exists.\n";
         exit(1);
     }
 
-	yyin = source;
+    yyin = preprocessor(source);
 
-	if (arg_option == ARG_OPTION_L) {
-		extern std::string token_to_string(int token, const char *lexeme);
+    if (arg_option == ARG_OPTION_L) {
+        extern std::string token_to_string(int token, const char* lexeme);
 
-		while (true) {
-			int token = yylex();
-			if (token == 0) {
-				break;
-			}
+        while (true) {
+            int token = yylex();
+            if (token == 0) {
+                break;
+            }
 
-			std::cout << token_to_string(token, yytext) << "\n";
-		}
-		fclose(yyin);
-		return 0;
-	}
+            std::cout << token_to_string(token, yytext) << "\n";
+        }
+        fclose(yyin);
+        return 0;
+    }
 
     final_values = nullptr;
-	yyparse();
+    yyparse();
 
-	fclose(yyin);
+    fclose(yyin);
 
-	if(final_values) {
-		if (arg_option == ARG_OPTION_P) {
-			std::cout << final_values->to_string() << std::endl;
-			return 0;
-		}
-		
+    if (final_values) {
+        if (arg_option == ARG_OPTION_P) {
+            std::cout << final_values->to_string() << std::endl;
+            return 0;
+        }
+
         llvm::LLVMContext context;
-		LLVMCompiler compiler(&context, "base");
-		compiler.compile(final_values);
+        LLVMCompiler compiler(&context, "base");
+        compiler.compile(final_values);
         if (arg_option == ARG_OPTION_S) {
-			compiler.dump();
+            compiler.dump();
         } else {
             compiler.write(std::string(argv[3]));
-		}
-	} else {
-	 	std::cerr << "empty program";
-	}
+        }
+    } else {
+        std::cerr << "empty program";
+    }
 
     return 0;
+}
+
+FILE* preprocessor(FILE* input)
+{
+    char buffer[1024];
+    string output;
+    while (fgets(buffer, 1024, input)) {
+        string line(buffer);
+
+        // Check if this line is a #def directive
+        size_t defPos = line.find("#def");
+        size_t undefPos = line.find("#undef");
+        if (defPos != string::npos) {
+            // Extract the macro name and value
+
+            // format is: #def <name> <value>
+
+            // get the first space encapsulated token after #def
+            size_t nameStart = line.find_first_of(" ") + 1;
+            size_t nameEnd = line.find_first_of(" ", nameStart);
+            string name = line.substr(nameStart, nameEnd - nameStart);
+
+            // get the value (till line end)
+            size_t valueStart = nameEnd + 1;
+            string value = line.substr(valueStart, line.length() - 1 - valueStart);
+
+            // Add the macro mapping to the macros table
+            macros[name] = value;
+        } else if (undefPos != string::npos) {
+            // Extract the macro name and value
+
+            // format is: #undef <name>
+
+            // get the first space encapsulated token after #def
+            size_t nameStart = line.find_first_of(" ") + 1;
+            size_t nameEnd = line.length() - 1;
+            string name = line.substr(nameStart, nameEnd - nameStart);
+
+            // Add the macro mapping to the macros table
+            macros.erase(name);
+        } else {
+            // Replace macros in the output string
+            for (auto macro : macros) {
+                // line = macro.first + " // " + macro.second;
+                size_t pos = 0;
+                while ((pos = line.find(macro.first, pos)) != string::npos) {
+                    line.replace(pos, macro.first.length(), macro.second);
+                    pos += macro.second.length();
+                }
+            }
+            // Add the line to the output string
+            output += line;
+        }
+    }
+
+    // Remove comments
+    size_t pos = 0;
+    while ((pos = output.find("//", pos)) != string::npos) {
+        size_t end = output.find("\n", pos);
+        output.erase(pos, end - pos + 1);
+    }
+
+    pos = 0;
+    while ((pos = output.find("/*", pos)) != string::npos) {
+        size_t end = output.find("*/", pos);
+        output.erase(pos, end - pos + 2);
+    }
+
+    // Create a temporary file for the output
+    FILE* temp = tmpfile();
+    fputs(output.c_str(), temp);
+    // save this to file called test.txt
+    // ofstream myfile;
+    // // myfile.open("test.txt");
+    // myfile << output.c_str();
+    // myfile.close();
+
+    rewind(temp);
+
+    return temp;
 }

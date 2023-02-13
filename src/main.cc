@@ -130,6 +130,25 @@ bool detect_cycle(const map<string, string>& map, string start)
     return false;
 }
 
+string check_macro(string line)
+{
+    for (auto macro : macros) {
+        // line = macro.first + " // " + macro.second;
+        size_t pos = 0;
+        while ((pos = line.find(macro.first, pos)) != string::npos) {
+
+            if ((pos > 0 && isalpha(line[pos - 1])) || (pos + macro.first.size() < line.size() && isalpha(line[pos + macro.first.size()]))) {
+                pos += macro.second.length();
+                continue;
+            }
+
+            line.replace(pos, macro.first.length(), macro.second);
+            pos += macro.second.length();
+        }
+    }
+    return line;
+}
+
 FILE* preprocessor(FILE* input)
 {
     char buffer[1024];
@@ -176,20 +195,7 @@ FILE* preprocessor(FILE* input)
             macros.erase(name);
         } else {
             // Replace macros in the output string
-            for (auto macro : macros) {
-                // line = macro.first + " // " + macro.second;
-                size_t pos = 0;
-                while ((pos = line.find(macro.first, pos)) != string::npos) {
-
-                    if ((pos > 0 && isalpha(line[pos - 1])) || (pos + macro.first.size() < line.size() && isalpha(line[pos + macro.first.size()]))) {
-                        pos += macro.second.length();
-                        continue;
-                    }
-
-                    line.replace(pos, macro.first.length(), macro.second);
-                    pos += macro.second.length();
-                }
-            }
+            line = check_macro(line);
             // Add the line to the output string
             output += line;
         }
